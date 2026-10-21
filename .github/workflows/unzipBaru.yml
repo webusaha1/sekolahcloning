@@ -1,0 +1,156 @@
+name: Auto Unzip Root Files
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  # Catatan: 'workflows: write' tidak selalu tersedia untuk GITHUB_TOKEN.
+  # Workflow ini menghindari kebutuhan itu dengan cara mengecualikan
+  # file workflow dari commit (lihat step "Commit and push changes").
+
+concurrency:
+  group: auto-unzip-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unzip:
+    runs-on: ubuntu-latest
+
+    # Anti-loop: jangan jalankan kalau commit terakhir dari bot ini sendiri
+    if: github.actor != 'github-actions[bot]'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # ------------------------------------------------------------------
+      # 1. Ekstrak semua .zip di root
+      # ------------------------------------------------------------------
+      - name: Unzip all .zip files in root
+        run: |
+          echo "🔍 Scanning for .zip files in root..."
+          shopt -s nullglob
+          ZIP_FOUND=false
+
+          for zipfile in *.zip; do
+            if [ -f "$zipfile" ]; then
+              ZIP_FOUND=true
+              echo "📦 Extracting: $zipfile"
+              unzip -o "$zipfile"
+              echo "🗑️  Deleting: $zipfile"
+              rm "$zipfile"
+              echo "✅ Done: $zipfile"
+              echo "-----------------------------------"
+            fi
+          done
+
+          if [ "$ZIP_FOUND" = false ]; then
+            echo "ℹ️  No .zip files found in root"
+          fi
+
+      # ------------------------------------------------------------------
+      # 2. Bersihkan data sensitif dari file .gs / .gas
+      # ------------------------------------------------------------------
+      - name: Remove sensitive data from .gs files
+        run: |
+          echo "🔒 Scanning and cleaning sensitive data..."
+
+          find . -type f \( -name "*.gs" -o -name "*.gas" \) -not -path './.git/*' | while read -r file; do
+            echo "Processing: $file"
+
+            # Redact token assignment umum
+            sed -i -E 's/(CF_API_TOKEN|CLOUDFLARE_API_TOKEN|API_TOKEN|AUTH_TOKEN|SECRET_KEY|PRIVATE_KEY)[[:space:]]*=[[:space:]]*["'"'"'][^"'"'"']*["'"'"']/\1 = "YOUR_TOKEN_HERE"/g' "$file"
+
+            # Redact value assignment yang panjang (>=32 char) — lebih aman dari pola lama
+            sed -i -E 's/([A-Za-z0-9_]*(TOKEN|SECRET|KEY|PASSWORD|PASSWD|PWD)[A-Za-z0-9_]*)[[:space:]]*[:=][[:space:]]*["'"'"']?[A-Za-z0-9_\-]{32,}["'"'"']?/\1 = "[REDACTED]"/gi' "$file"
+
+            echo "✅ Cleaned: $file"
+          done
+
+      # ------------------------------------------------------------------
+      # 3. Buat .env.example & update .gitignore
+      # ------------------------------------------------------------------
+      - name: Create .env.example and update .gitignore
+        run: |
+          printf '# Template for environment variables\n# Copy this file to .env and fill in actual values\nCF_API_TOKEN=YOUR_CLOUDFLARE_TOKEN_HERE\nAPI_TOKEN=YOUR_API_TOKEN_HERE\nAUTH_TOKEN=YOUR_AUTH_TOKEN_HERE\n' > .env.example
+
+          touch .gitignore
+
+          # Hindari duplikasi: hanya tambah kalau belum ada penanda
+          if ! grep -q "# === Auto-unzip sensitive patterns ===" .gitignore; then
+            {
+              echo ""
+              echo "# === Auto-unzip sensitive patterns ==="
+              echo ".env"
+              echo ".env.local"
+              echo ".env.*.local"
+              echo "*.gs.bak"
+              echo ".backup-secrets/"
+              echo "gas/code-09.gs"
+              echo "gas/code-10.gs"
+              echo "gas/code-11.gs"
+              echo "gas/code-12.gs"
+              echo "gas/code-sb-15.gs"
+              echo "# ====================================="
+            } >> .gitignore
+          fi
+
+          echo "✅ .env.example & .gitignore updated"
+
+      # ------------------------------------------------------------------
+      # 4. Tampilkan struktur hasil ekstraksi
+      # ------------------------------------------------------------------
+      - name: Show extracted structure
+        run: |
+          echo ""
+          echo "========================================="
+          echo "📂 Repository structure after unzip:"
+          echo "========================================="
+          find . -type f \
+            -not -path './.git/*' \
+            -not -path './node_modules/*' \
+            | sort
+
+      # ------------------------------------------------------------------
+      # 5. Commit & push — TANPA menyentuh .github/workflows/
+      # ------------------------------------------------------------------
+      - name: Commit and push changes
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+          # --- Lindungi folder .github/workflows dari perubahan tak sengaja ---
+          # 1) Kembalikan file workflow yang sudah di-track ke kondisi HEAD
+          if [ -d .github/workflows ]; then
+            git checkout -- .github/workflows 2>/dev/null || true
+
+            # 2) Hapus file workflow BARU yang belum di-track (berasal dari zip)
+            find .github/workflows -type f \( -name "*.yml" -o -name "*.yaml" \) | while read -r f; do
+              if ! git ls-files --error-unmatch "$f" >/dev/null 2>&1; then
+                echo "🗑️  Skip workflow baru (butuh permission khusus): $f"
+                rm -f "$f"
+              fi
+            done
+          fi
+
+          # Pastikan folder workflow yang kosong tidak ikut ter-commit
+          find .github/workflows -type d -empty -delete 2>/dev/null || true
+
+          git add -A
+
+          # Jangan commit file workflow yang butuh permission 'workflows'
+          git reset -q .github/workflows 2>/dev/null || true
+
+          if git diff --staged --quiet; then
+            echo "ℹ️  No changes to commit"
+          else
+            echo "📤 Committing and pushing changes..."
+            git commit -m "🤖 Auto-unzip: extracted files and cleaned sensitive data"
+            git push
+            echo "✅ Changes pushed to repository"
+          fi
