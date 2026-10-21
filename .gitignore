@@ -1,0 +1,13 @@
+
+# === Auto-unzip sensitive patterns ===
+.env
+.env.local
+.env.*.local
+*.gs.bak
+.backup-secrets/
+gas/code-09.gs
+gas/code-10.gs
+gas/code-11.gs
+gas/code-12.gs
+gas/code-sb-15.gs
+# =====================================

@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 260 64" width="260" height="64" role="img" aria-label="SLB Negeri Mandailing Natal">
+  <circle cx="32" cy="32" r="28" fill="#0eb7e1"/>
+  <path d="M32 14l16 8v8c0 10-7 17-16 20-9-3-16-10-16-20v-8z" fill="#fff" opacity=".95"/>
+  <path d="M32 22l8 4v5c0 5-3.500 9-8 11-4.500-2-8-6-8-11v-5z" fill="#0eb7e1"/>
+  <text x="72" y="28" font-family="Poppins, Arial, sans-serif" font-size="18" font-weight="700" fill="#3b3d42">SLB Negeri</text>
+  <text x="72" y="48" font-family="Poppins, Arial, sans-serif" font-size="15" font-weight="500" fill="#0eb7e1">Mandailing Natal</text>
+</svg>
